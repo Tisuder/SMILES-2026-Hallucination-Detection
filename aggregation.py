@@ -45,15 +45,32 @@ def aggregate(
     # STUDENT: Replace or extend the aggregation below.
     # ------------------------------------------------------------------
 
-    # Default: last real token of the final transformer layer.
-    layer = hidden_states[-1]          # (seq_len, hidden_dim)
-
-    # Find the index of the last real (non-padding) token.
-    real_positions = attention_mask.nonzero(as_tuple=False)  # (n_real, 1)
-    last_pos = int(real_positions[-1].item())                 # scalar index
-
-    feature = layer[last_pos]          # (hidden_dim,)
-
+    n_layers, seq_len, hidden_dim = hidden_states.shape
+    
+    reapositions = attention_mask.nonzero(as_tuple=False).squeeze()
+    
+    # Focus on the last 20 tokens (the 'hallucination zone')
+    num_response_tokens = min(40, len(reapositions)) 
+    if num_response_tokens == 0:
+        response_indices = reapositions
+    else:
+        response_indices = reapositions[-num_response_tokens:]
+        
+    # Distributed layer selection to capture both logical formation and final refinement
+    selected_layers = [-16, -12, -8, -4, -1]
+    
+        
+    features = []
+    for idx in selected_layers:
+        layer = hidden_states[idx]
+        response_tokens = layer[response_indices]
+        # Pool across token sequence
+        mean_pooled = response_tokens.mean(dim=0)
+        
+        features.append(mean_pooled)
+    
+    feature = torch.cat(features, dim=0)  # (5 * hidden_dim,)
+    
     return feature
     # ------------------------------------------------------------------
 
